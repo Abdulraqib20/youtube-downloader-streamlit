@@ -1,3 +1,5 @@
-streamlit>=1.28.0
-yt-dlp>=2024.3.10
+streamlit==1.48.1
+yt-dlp>==2025.08.27
 pathlib2
+typing
+datetime
