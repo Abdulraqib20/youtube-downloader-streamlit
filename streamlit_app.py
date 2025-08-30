@@ -245,6 +245,27 @@ def download_video(url, options):
     except Exception as e:
         return False, str(e)
 
+def get_downloaded_files():
+    """Get list of downloaded files"""
+    output_dir = get_output_directory()
+    try:
+        if os.path.exists(output_dir):
+            files = []
+            for file in os.listdir(output_dir):
+                if file.endswith(('.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.wav', '.flac')):
+                    file_path = os.path.join(output_dir, file)
+                    file_size = os.path.getsize(file_path)
+                    files.append({
+                        'name': file,
+                        'path': file_path,
+                        'size': file_size,
+                        'size_mb': round(file_size / 1024 / 1024, 2)
+                    })
+            return sorted(files, key=lambda x: os.path.getctime(x['path']), reverse=True)
+    except Exception as e:
+        st.error(f"Error accessing downloads: {e}")
+    return []
+
 # Header
 st.markdown("""
 <div class="main-header">
@@ -305,6 +326,32 @@ else:
 embed_metadata = st.sidebar.checkbox("📊 Embed Metadata")
 embed_thumbnail = st.sidebar.checkbox("🖼️ Embed Thumbnail")
 write_thumbnail = st.sidebar.checkbox("💾 Save Thumbnail File")
+
+# Downloaded Files Section
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📁 Downloaded Files")
+
+downloaded_files = get_downloaded_files()
+if downloaded_files:
+    st.sidebar.markdown(f"**Found {len(downloaded_files)} files:**")
+
+    for i, file_info in enumerate(downloaded_files[:5]):  # Show latest 5 files
+        with st.sidebar.expander(f"📄 {file_info['name'][:20]}..."):
+            st.markdown(f"**Size:** {file_info['size_mb']} MB")
+
+            try:
+                with open(file_info['path'], 'rb') as file:
+                    st.download_button(
+                        label="💾 Download",
+                        data=file.read(),
+                        file_name=file_info['name'],
+                        mime="application/octet-stream",
+                        key=f"download_{i}"
+                    )
+            except Exception as e:
+                st.error(f"Error: {e}")
+else:
+    st.sidebar.info("📭 No downloaded files yet")
 
 # Main content area
 col1, col2 = st.columns([2, 1])
@@ -441,6 +488,28 @@ with col1:
                     ✅ Download completed successfully!
                 </div>
                 """, unsafe_allow_html=True)
+
+                # Show downloaded files for download
+                downloaded_files = get_downloaded_files()
+                if downloaded_files:
+                    st.markdown("#### 📁 **Download your file:**")
+                    latest_file = downloaded_files[0]  # Most recent file
+
+                    col_download1, col_download2 = st.columns([3, 1])
+                    with col_download1:
+                        st.markdown(f"**📄 {latest_file['name']}** ({latest_file['size_mb']} MB)")
+
+                    with col_download2:
+                        try:
+                            with open(latest_file['path'], 'rb') as file:
+                                st.download_button(
+                                    label="📥 Download",
+                                    data=file.read(),
+                                    file_name=latest_file['name'],
+                                    mime="application/octet-stream"
+                                )
+                        except Exception as e:
+                            st.error(f"Error preparing download: {e}")
 
                 # Add to history
                 st.session_state.download_history.append({
