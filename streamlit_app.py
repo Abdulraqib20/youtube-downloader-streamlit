@@ -236,8 +236,51 @@ def get_format_display(fmt):
 
     return f"Format {fmt.get('format_id', '?')} - {resolution} - {codec} - {filesize}"
 
+def download_video_to_memory(url, options):
+    """Download video directly to memory for immediate download"""
+    import io
+    import tempfile
+    
+    try:
+        # Create a temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Update options to use temp directory
+            temp_options = options.copy()
+            temp_options['outtmpl'] = os.path.join(temp_dir, "%(title)s [%(id)s].%(ext)s")
+            
+            # Download to temp directory
+            with yt_dlp.YoutubeDL(temp_options) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+            # Find the downloaded file
+            downloaded_files = []
+            for file in os.listdir(temp_dir):
+                if file.endswith(('.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.wav', '.flac')):
+                    file_path = os.path.join(temp_dir, file)
+                    file_size = os.path.getsize(file_path)
+                    
+                    # Read file into memory
+                    with open(file_path, 'rb') as f:
+                        file_data = f.read()
+                    
+                    # Safe access to info
+                    title = info.get('title', 'Unknown') if info else 'Unknown'
+                    
+                    downloaded_files.append({
+                        'name': file,
+                        'data': file_data,
+                        'size': file_size,
+                        'title': title,
+                        'ext': os.path.splitext(file)[1]
+                    })
+            
+            return True, downloaded_files, None
+            
+    except Exception as e:
+        return False, [], str(e)
+
 def download_video(url, options):
-    """Download video with given options"""
+    """Download video with given options - Legacy function for compatibility"""
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             ydl.download([url])
@@ -326,32 +369,6 @@ else:
 embed_metadata = st.sidebar.checkbox("📊 Embed Metadata")
 embed_thumbnail = st.sidebar.checkbox("🖼️ Embed Thumbnail")
 write_thumbnail = st.sidebar.checkbox("💾 Save Thumbnail File")
-
-# Downloaded Files Section
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📁 Downloaded Files")
-
-downloaded_files = get_downloaded_files()
-if downloaded_files:
-    st.sidebar.markdown(f"**Found {len(downloaded_files)} files:**")
-
-    for i, file_info in enumerate(downloaded_files[:5]):  # Show latest 5 files
-        with st.sidebar.expander(f"📄 {file_info['name'][:20]}..."):
-            st.markdown(f"**Size:** {file_info['size_mb']} MB")
-
-            try:
-                with open(file_info['path'], 'rb') as file:
-                    st.download_button(
-                        label="💾 Download",
-                        data=file.read(),
-                        file_name=file_info['name'],
-                        mime="application/octet-stream",
-                        key=f"download_{i}"
-                    )
-            except Exception as e:
-                st.error(f"Error: {e}")
-else:
-    st.sidebar.info("📭 No downloaded files yet")
 
 # Main content area
 col1, col2 = st.columns([2, 1])
@@ -479,9 +496,9 @@ with col1:
             status_text.text("Starting download...")
             progress_bar.progress(25)
 
-            success, error = download_video(url, options)
+            success, downloaded_files, error = download_video_to_memory(url, options)
 
-            if success:
+            if success and downloaded_files:
                 progress_bar.progress(100)
                 st.markdown("""
                 <div class="success-box">
@@ -489,33 +506,38 @@ with col1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Show downloaded files for download
-                downloaded_files = get_downloaded_files()
-                if downloaded_files:
-                    st.markdown("#### 📁 **Download your file:**")
-                    latest_file = downloaded_files[0]  # Most recent file
-
-                    col_download1, col_download2 = st.columns([3, 1])
-                    with col_download1:
-                        st.markdown(f"**📄 {latest_file['name']}** ({latest_file['size_mb']} MB)")
-
-                    with col_download2:
-                        try:
-                            with open(latest_file['path'], 'rb') as file:
-                                st.download_button(
-                                    label="📥 Download",
-                                    data=file.read(),
-                                    file_name=latest_file['name'],
-                                    mime="application/octet-stream"
-                                )
-                        except Exception as e:
-                            st.error(f"Error preparing download: {e}")
+                # Show download buttons for each file
+                st.markdown("#### 📁 **Download your file(s):**")
+                
+                for i, file_info in enumerate(downloaded_files):
+                    col_info, col_download = st.columns([3, 1])
+                    
+                    with col_info:
+                        file_size_mb = round(file_info['size'] / 1024 / 1024, 2)
+                        st.markdown(f"**📄 {file_info['name']}** ({file_size_mb} MB)")
+                    
+                    with col_download:
+                        # Determine MIME type based on extension
+                        mime_type = "application/octet-stream"
+                        if file_info['ext'].lower() in ['.mp4', '.mkv', '.webm']:
+                            mime_type = "video/mp4"
+                        elif file_info['ext'].lower() in ['.mp3', '.m4a', '.wav', '.flac']:
+                            mime_type = "audio/mpeg"
+                        
+                        st.download_button(
+                            label="📥 Download",
+                            data=file_info['data'],
+                            file_name=file_info['name'],
+                            mime=mime_type,
+                            key=f"download_single_{i}"
+                        )
 
                 # Add to history
                 st.session_state.download_history.append({
                     'url': url,
                     'type': 'Single Video',
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'files': [f['name'] for f in downloaded_files]
                 })
             else:
                 st.markdown(f"""
@@ -598,15 +620,34 @@ with col1:
             status_text.text("Extracting audio...")
             progress_bar.progress(50)
 
-            success, error = download_video(audio_url, options)
+            success, downloaded_files, error = download_video_to_memory(audio_url, options)
 
-            if success:
+            if success and downloaded_files:
                 progress_bar.progress(100)
                 st.markdown("""
                 <div class="success-box">
                     🎵 Audio extracted successfully!
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Show download buttons for each file
+                st.markdown("#### 📁 **Download your audio file(s):**")
+                
+                for i, file_info in enumerate(downloaded_files):
+                    col_info, col_download = st.columns([3, 1])
+                    
+                    with col_info:
+                        file_size_mb = round(file_info['size'] / 1024 / 1024, 2)
+                        st.markdown(f"**🎵 {file_info['name']}** ({file_size_mb} MB)")
+                    
+                    with col_download:
+                        st.download_button(
+                            label="📥 Download",
+                            data=file_info['data'],
+                            file_name=file_info['name'],
+                            mime="audio/mpeg",
+                            key=f"download_audio_{i}"
+                        )
             else:
                 st.markdown(f"""
                 <div class="error-box">
