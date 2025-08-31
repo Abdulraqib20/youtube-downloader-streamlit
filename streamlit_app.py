@@ -116,34 +116,59 @@ def get_output_directory():
     return os.path.join(os.getcwd(), "Downloads")
 
 def create_download_options(quality="best", audio_only=False, subtitle_langs=None, custom_format=None):
-    """Create yt-dlp options based on user preferences"""
+    """Create yt-dlp options based on user preferences with enhanced anti-restriction measures"""
     output_dir = get_output_directory()
     os.makedirs(output_dir, exist_ok=True)
 
     outtmpl = os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s")
+
+    # Multiple user agents to rotate through
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
+    ]
+    
+    import random
+    selected_ua = random.choice(user_agents)
 
     ydl_opts = {
         'outtmpl': outtmpl,
         'ignoreerrors': True,
         'no_warnings': False,
         'extractflat': False,
-        # Anti-restriction options
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        # Enhanced anti-restriction options
+        'user_agent': selected_ua,
         'referer': 'https://www.youtube.com/',
-        'sleep_interval': 1,
-        'max_sleep_interval': 5,
-        'retries': 3,
-        'fragment_retries': 3,
+        'sleep_interval': 2,
+        'max_sleep_interval': 8,
+        'retries': 5,
+        'fragment_retries': 5,
         'skip_unavailable_fragments': True,
         'abort_on_unavailable_fragment': False,
-        'extractor_retries': 3,
-        'file_access_retries': 3,
+        'extractor_retries': 5,
+        'file_access_retries': 5,
         'http_chunk_size': 10485760,  # 10MB chunks
+        # Additional headers
+        'http_headers': {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        },
+        # Try to avoid detection
+        'embed_subs': True,
+        'writesubtitles': False,
+        'writeautomaticsub': False,
     }
 
     if audio_only:
+        # Simpler format for audio to avoid restrictions
         ydl_opts.update({
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -154,17 +179,18 @@ def create_download_options(quality="best", audio_only=False, subtitle_langs=Non
         if custom_format:
             ydl_opts['format'] = custom_format
         elif quality == "4K":
-            ydl_opts['format'] = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]'
+            # Fallback chain for 4K
+            ydl_opts['format'] = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]/best'
         elif quality == "1440p":
-            ydl_opts['format'] = 'bestvideo[height<=1440]+bestaudio/best[height<=1440]'
+            ydl_opts['format'] = 'bestvideo[height<=1440]+bestaudio/best[height<=1440]/best'
         elif quality == "1080p":
-            ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+            ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
         elif quality == "720p":
-            ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+            ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
         elif quality == "480p":
-            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]'
-        else:  # Best Available - Force 1080p as highest priority
-            ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/bestvideo*+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+        else:  # Best Available with fallbacks
+            ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best'
 
     # Subtitles
     if subtitle_langs:
@@ -257,47 +283,100 @@ def get_format_display(fmt):
     return f"Format {fmt.get('format_id', '?')} - {resolution} - {codec} - {filesize}"
 
 def download_video_to_memory(url, options):
-    """Download video directly to memory for immediate download"""
+    """Download video directly to memory with multiple fallback strategies"""
     import io
     import tempfile
-
+    import random
+    import time
+    
+    # Strategy 1: Try with original options
     try:
-        # Create a temporary directory
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Update options to use temp directory
-            temp_options = options.copy()
-            temp_options['outtmpl'] = os.path.join(temp_dir, "%(title)s [%(id)s].%(ext)s")
+        return _attempt_download(url, options)
+    except Exception as e1:
+        st.warning(f"Primary download method failed: {str(e1)[:100]}...")
+        
+    # Strategy 2: Try with simpler format
+    try:
+        simplified_options = options.copy()
+        if 'format' in simplified_options:
+            # Simplify format selection
+            if '+' in simplified_options['format']:
+                simplified_options['format'] = 'best[height<=720]'
+            else:
+                simplified_options['format'] = 'best'
+        
+        st.info("🔄 Trying alternative download method...")
+        return _attempt_download(url, simplified_options)
+    except Exception as e2:
+        st.warning(f"Alternative method failed: {str(e2)[:100]}...")
+        
+    # Strategy 3: Try with different user agent and minimal options
+    try:
+        minimal_options = {
+            'outtmpl': options['outtmpl'],
+            'format': 'best[height<=480]/best',
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+            'referer': 'https://m.youtube.com/',
+            'retries': 3,
+            'sleep_interval': 5,
+        }
+        
+        st.info("🔄 Trying mobile compatibility mode...")
+        return _attempt_download(url, minimal_options)
+    except Exception as e3:
+        st.warning(f"Mobile mode failed: {str(e3)[:100]}...")
+        
+    # Strategy 4: Last resort - try audio only and convert if needed
+    try:
+        audio_options = {
+            'outtmpl': options['outtmpl'],
+            'format': 'bestaudio/best',
+            'user_agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+            'sleep_interval': 3,
+        }
+        
+        st.info("🔄 Trying audio-only fallback...")
+        return _attempt_download(url, audio_options)
+    except Exception as e4:
+        error_msg = f"All download strategies failed. Last error: {str(e4)}"
+        return False, [], error_msg
 
-            # Download to temp directory
-            with yt_dlp.YoutubeDL(temp_options) as ydl:
-                info = ydl.extract_info(url, download=True)
-
-            # Find the downloaded file
-            downloaded_files = []
-            for file in os.listdir(temp_dir):
-                if file.endswith(('.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.wav', '.flac')):
-                    file_path = os.path.join(temp_dir, file)
-                    file_size = os.path.getsize(file_path)
-
-                    # Read file into memory
-                    with open(file_path, 'rb') as f:
-                        file_data = f.read()
-
-                    # Safe access to info
-                    title = info.get('title', 'Unknown') if info else 'Unknown'
-
-                    downloaded_files.append({
-                        'name': file,
-                        'data': file_data,
-                        'size': file_size,
-                        'title': title,
-                        'ext': os.path.splitext(file)[1]
-                    })
-
-            return True, downloaded_files, None
-
-    except Exception as e:
-        return False, [], str(e)
+def _attempt_download(url, options):
+    """Helper function to attempt download with given options"""
+    import tempfile
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Update options to use temp directory
+        temp_options = options.copy()
+        temp_options['outtmpl'] = os.path.join(temp_dir, "%(title)s [%(id)s].%(ext)s")
+        
+        # Download to temp directory
+        with yt_dlp.YoutubeDL(temp_options) as ydl:
+            info = ydl.extract_info(url, download=True)
+            
+        # Find the downloaded file
+        downloaded_files = []
+        for file in os.listdir(temp_dir):
+            if file.endswith(('.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.wav', '.flac')):
+                file_path = os.path.join(temp_dir, file)
+                file_size = os.path.getsize(file_path)
+                
+                # Read file into memory
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                
+                # Safe access to info
+                title = info.get('title', 'Unknown') if info else 'Unknown'
+                
+                downloaded_files.append({
+                    'name': file,
+                    'data': file_data,
+                    'size': file_size,
+                    'title': title,
+                    'ext': os.path.splitext(file)[1]
+                })
+        
+        return True, downloaded_files, None
 
 def download_video(url, options):
     """Download video with given options - Legacy function for compatibility"""
@@ -389,6 +468,21 @@ else:
 embed_metadata = st.sidebar.checkbox("📊 Embed Metadata")
 embed_thumbnail = st.sidebar.checkbox("🖼️ Embed Thumbnail")
 write_thumbnail = st.sidebar.checkbox("💾 Save Thumbnail File")
+
+# Download strategy info
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🚪 Download Strategies")
+st.sidebar.info("""
+🔄 **Smart Fallback System**  
+If downloads fail, the app automatically tries:
+
+1. 🎯 **Primary**: Best quality
+2. 🔄 **Alternative**: Lower quality
+3. 📱 **Mobile**: Mobile compatibility
+4. 🎵 **Audio**: Audio-only fallback
+
+This ensures maximum success rate!
+""")
 
 # Main content area
 col1, col2 = st.columns([2, 1])
