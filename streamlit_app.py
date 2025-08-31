@@ -127,6 +127,18 @@ def create_download_options(quality="best", audio_only=False, subtitle_langs=Non
         'ignoreerrors': True,
         'no_warnings': False,
         'extractflat': False,
+        # Anti-restriction options
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'referer': 'https://www.youtube.com/',
+        'sleep_interval': 1,
+        'max_sleep_interval': 5,
+        'retries': 3,
+        'fragment_retries': 3,
+        'skip_unavailable_fragments': True,
+        'abort_on_unavailable_fragment': False,
+        'extractor_retries': 3,
+        'file_access_retries': 3,
+        'http_chunk_size': 10485760,  # 10MB chunks
     }
 
     if audio_only:
@@ -171,6 +183,10 @@ def get_video_info(url):
             'quiet': True,
             'no_warnings': True,
             'extractflat': False,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'sleep_interval': 1,
+            'retries': 3,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -186,6 +202,10 @@ def get_available_formats(url):
             'quiet': True,
             'no_warnings': True,
             'listformats': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'sleep_interval': 1,
+            'retries': 3,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -240,32 +260,32 @@ def download_video_to_memory(url, options):
     """Download video directly to memory for immediate download"""
     import io
     import tempfile
-    
+
     try:
         # Create a temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
             # Update options to use temp directory
             temp_options = options.copy()
             temp_options['outtmpl'] = os.path.join(temp_dir, "%(title)s [%(id)s].%(ext)s")
-            
+
             # Download to temp directory
             with yt_dlp.YoutubeDL(temp_options) as ydl:
                 info = ydl.extract_info(url, download=True)
-                
+
             # Find the downloaded file
             downloaded_files = []
             for file in os.listdir(temp_dir):
                 if file.endswith(('.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.wav', '.flac')):
                     file_path = os.path.join(temp_dir, file)
                     file_size = os.path.getsize(file_path)
-                    
+
                     # Read file into memory
                     with open(file_path, 'rb') as f:
                         file_data = f.read()
-                    
+
                     # Safe access to info
                     title = info.get('title', 'Unknown') if info else 'Unknown'
-                    
+
                     downloaded_files.append({
                         'name': file,
                         'data': file_data,
@@ -273,9 +293,9 @@ def download_video_to_memory(url, options):
                         'title': title,
                         'ext': os.path.splitext(file)[1]
                     })
-            
+
             return True, downloaded_files, None
-            
+
     except Exception as e:
         return False, [], str(e)
 
@@ -508,14 +528,14 @@ with col1:
 
                 # Show download buttons for each file
                 st.markdown("#### 📁 **Download your file(s):**")
-                
+
                 for i, file_info in enumerate(downloaded_files):
                     col_info, col_download = st.columns([3, 1])
-                    
+
                     with col_info:
                         file_size_mb = round(file_info['size'] / 1024 / 1024, 2)
                         st.markdown(f"**📄 {file_info['name']}** ({file_size_mb} MB)")
-                    
+
                     with col_download:
                         # Determine MIME type based on extension
                         mime_type = "application/octet-stream"
@@ -523,7 +543,7 @@ with col1:
                             mime_type = "video/mp4"
                         elif file_info['ext'].lower() in ['.mp3', '.m4a', '.wav', '.flac']:
                             mime_type = "audio/mpeg"
-                        
+
                         st.download_button(
                             label="📥 Download",
                             data=file_info['data'],
@@ -629,17 +649,17 @@ with col1:
                     🎵 Audio extracted successfully!
                 </div>
                 """, unsafe_allow_html=True)
-                
+
                 # Show download buttons for each file
                 st.markdown("#### 📁 **Download your audio file(s):**")
-                
+
                 for i, file_info in enumerate(downloaded_files):
                     col_info, col_download = st.columns([3, 1])
-                    
+
                     with col_info:
                         file_size_mb = round(file_info['size'] / 1024 / 1024, 2)
                         st.markdown(f"**🎵 {file_info['name']}** ({file_size_mb} MB)")
-                    
+
                     with col_download:
                         st.download_button(
                             label="📥 Download",
